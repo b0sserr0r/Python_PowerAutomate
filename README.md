@@ -43,6 +43,7 @@ python run_desktop_flow.py
 ```bash
 python run_desktop_flow.py --pick
 ```
+หลังจากเลือก Flow ได้แล้ว สคริปต์จะถามให้ใส่ JSON เพิ่มเติม (พิมพ์ path ของไฟล์ .json หรือวาง JSON ตรงๆ แล้วกด Enter เพื่อข้ามได้) จากนั้นจะรันและเฝ้าดูจนเสร็จ
 
 ถ้า Flow ต้องการ Input parameters (JSON):
 ```bash
@@ -84,17 +85,19 @@ python run_desktop_flow_token.py --token "<access_token>"
 # หรือหากตั้งค่า ACCESS_TOKEN ใน .env อยู่แล้ว
 python run_desktop_flow_token.py
 ```
-หากไม่กำหนด `WORKFLOW_ID` (หรือกำหนดเป็น "SELECT/PICK/PROMPT") สคริปต์จะดึงรายการ Desktop Workflows (category=6) จาก Dataverse แล้วให้เลือกจากรายการ
+หากไม่กำหนด `WORKFLOW_ID` (หรือกำหนดเป็น "SELECT/PICK/PROMPT") สคริปต์จะดึงรายการ Desktop Workflows (category=6) จาก Dataverse แล้วให้เลือกจากรายการ และเปิดให้กรอก JSON เพิ่มเติมก่อนรัน
 หมายเหตุ: Access Token ต้องออกสำหรับ Resource เดียวกับ `DATAVERSE_URL` (audience เท่ากับ URL นั้น) เพื่อเรียก `/api/data/v9.2/...` ได้สำเร็จ
 
 ## ข้อควรทราบ
 - สิทธิ์: Application user ต้องมีสิทธิ์รัน Desktop Flow ใน Environment นั้น
 - การ Throttling: ถ้าถูกจำกัดอัตรา (429) อาจต้องเพิ่ม `POLL_INTERVAL_SEC` หรือลองใหม่
 - สถานะที่รองรับ: `Succeeded/Completed`, `Failed/Cancelled` และสถานะระหว่างทาง เช่น `Running/Queued`
-- หาก Action ของ Flow ต้องการพารามิเตอร์ ให้เตรียม `inputs.json` ตามสัญญาของ Flow นั้น ๆ
+- หาก Action ของ Flow ต้องการพารามิเตอร์ ให้เตรียม `inputs.json` ตามสัญญาของ Flow นั้น ๆ (ถ้าส่ง `inputs` เป็นออบเจกต์ สคริปต์จะแปลงเป็นสตริงให้อัตโนมัติ และถ้า `inputs` ว่าง/ไม่ได้ส่งมา สคริปต์จะตัดฟิลด์ `inputs` ออกก่อนเรียก API)
 
 ## โครงสร้าง `inputs.json` (ตัวอย่าง)
-อย่างต่ำ Action ต้องการ `runMode` และ `connectionName` ถ้าไม่ใส่ใน `.env` หรือ CLI ให้ระบุไว้ในไฟล์:
+หมายเหตุ:
+- บาง Flow ต้องการ `runMode` และ `connectionName` (เช่น Desktop Flow ส่วนใหญ่) แต่สคริปต์นี้อนุญาตให้เว้นว่างได้ — หาก Flow ของคุณไม่ต้องการค่าดังกล่าว สามารถส่งเฉพาะ `inputs` หรือเว้นว่างทั้ง payload ได้
+- หากส่ง `inputs` เป็นออบเจกต์ สคริปต์นี้จะแปลงเป็นสตริง JSON ให้อัตโนมัติ (เพราะ API RunDesktopFlow คาดหวัง `inputs` เป็นชนิดสตริง)
 ```json
 {
   "runMode": "Unattended",

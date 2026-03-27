@@ -107,6 +107,66 @@ def prompt_select_workflow(flows: List[Dict[str, str]]) -> Optional[str]:
         print("Number out of range. Try again.")
 
 
+def prompt_inputs_payload() -> Optional[dict]:
+    print("\nOptional: provide additional JSON inputs for this run.")
+    print("- Enter a file path to a .json, or paste raw JSON.")
+    print("- Press Enter to skip.")
+    while True:
+        s = input("Inputs (path or JSON): ").strip()
+        if not s:
+            return None
+        if os.path.exists(s):
+            try:
+                with open(s, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception as ex:
+                print(f"Failed to load file: {ex}")
+                continue
+        try:
+            return json.loads(s)
+        except Exception as ex:
+            print(f"Invalid JSON: {ex}")
+            yn = input("Try again? [y/N]: ").strip().lower()
+            if yn not in ("y", "yes"):
+                return None
+
+
+def _deep_merge(a: dict, b: dict) -> dict:
+    out = dict(a or {})
+    for k, v in (b or {}).items():
+        if k in out and isinstance(out[k], dict) and isinstance(v, dict):
+            out[k] = _deep_merge(out[k], v)
+        else:
+            out[k] = v
+    return out
+
+
+def normalize_action_payload(p: Optional[dict]) -> dict:
+    q = dict(p or {})
+    # Handle 'inputs': remove if empty; stringify if object/array
+    if "inputs" in q:
+        v = q["inputs"]
+        should_remove = (
+            v is None or
+            (isinstance(v, (dict, list)) and len(v) == 0) or
+            (isinstance(v, str) and (v.strip() == "" or v.strip() in ("{}", "[]")))
+        )
+        if should_remove:
+            q.pop("inputs", None)
+        elif not isinstance(v, str):
+            try:
+                q["inputs"] = json.dumps(v, ensure_ascii=False)
+            except Exception:
+                pass
+    # Normalize runMode capitalization if provided
+    rm = q.get("runMode")
+    if isinstance(rm, str):
+        rml = rm.strip().lower()
+        if rml in ("attended", "unattended"):
+            q["runMode"] = rml.capitalize()
+    return q
+
+
 def try_extract_flowsession_id_from_response(resp: requests.Response) -> Optional[str]:
     # 1) Try JSON body keys
     try:
@@ -346,19 +406,14 @@ def main():
             print(f"Failed to load inputs: {ex}")
             sys.exit(4)
 
-    # Ensure required action parameters are present
-    # Required: runMode, connectionName. If missing in payload, try env/CLI
+    # Ensure action parameters when provided; allow empty payload as well
     if payload is None:
         payload = {}
     if "runMode" not in payload and run_mode:
         payload["runMode"] = run_mode
     if "connectionName" not in payload and connection_name:
         payload["connectionName"] = connection_name
-
-    # Basic check to help avoid 400 if still missing
-    if "runMode" not in payload or "connectionName" not in payload:
-        print("Missing required parameters: runMode, connectionName. Provide via inputs.json or --run-mode/--connection-name or env RUN_MODE/CONNECTION_NAME.")
-        sys.exit(7)
+    # Defer any strict validation; some flows may not require these fields
 
     # If user provided a FlowSession Id, skip triggering and just monitor
     # If workflow_id is missing or placeholder, allow selection using the token provided
@@ -374,6 +429,11 @@ def main():
             sys.exit(0)
         workflow_id = sel_id
 
+        # After selecting a workflow, allow user to provide additional JSON inputs
+        extra = prompt_inputs_payload()
+        if extra:
+            payload = _deep_merge(payload or {}, extra)
+
     # Normalize and validate selected/entered GUID
     workflow_id = workflow_id.strip()
     if workflow_id.startswith("{") and workflow_id.endswith("}"):
@@ -383,13 +443,14 @@ def main():
     except Exception:
         print("WORKFLOW_ID must be a valid GUID, e.g. 1015b2f8-5575-45dd-b1ba-adca4f1f5957")
         sys.exit(2)
+    # Proceed even if runMode/connectionName not provided; API may accept empty or inputs-only payloads.
     flowsession_id = (flowsession_id_cli or os.getenv("FLOWSESSION_ID") or "").strip("{} ")
     started_at = utcnow()
 
     if not flowsession_id:
         print("Triggering Desktop Flow run (token-only mode)...")
         try:
-            resp = call_run_desktop_flow(dataverse_url, access_token, workflow_id, payload)
+            resp = call_run_desktop_flow(dataverse_url, access_token, workflow_id, normalize_action_payload(payload))
         except requests.RequestException as ex:
             print(f"HTTP error calling RunDesktopFlow: {ex}")
             sys.exit(5)
