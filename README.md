@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Run Power Automate Desktop Flow via Dataverse API
 
 เครื่องมือนี้ช่วย "เรียก (Run)" Desktop Flow (Power Automate Desktop) ผ่าน Dataverse Web API แล้ว "เฝ้าดู (Monitor)" จนจบ พร้อมรายงานสถานะสำเร็จ/ล้มเหลว และข้อความ Error ถ้ามี
@@ -96,3 +97,6 @@ python run_desktop_flow_token.py --token "<access_token>" --run-mode Unattended 
 - 401/403: ตรวจสอบ Tenant/Client/Secret และสิทธิ์ Application user
 - 404: ตรวจสอบ `DATAVERSE_URL` และ `WORKFLOW_ID`
 - 5xx: ลองใหม่ภายหลัง, ตรวจสอบ Health ของบริการ
+=======
+# Python_PowerAutomate
+>>>>>>> 51980058e8e809ecbc6b5d583d0d5a5b00d771cb
