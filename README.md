@@ -39,6 +39,11 @@ POLL_TIMEOUT_SEC=1200
 python run_desktop_flow.py
 ```
 
+เลือก Flow แบบโต้ตอบ (ดึงรายการ Desktop Workflows ทั้งหมด แล้วให้ผู้ใช้เลือก):
+```bash
+python run_desktop_flow.py --pick
+```
+
 ถ้า Flow ต้องการ Input parameters (JSON):
 ```bash
 python run_desktop_flow.py --inputs inputs.json
@@ -73,6 +78,13 @@ python run_desktop_flow_token.py --token "<access_token>" --inputs inputs.json
 ```bash
 python run_desktop_flow_token.py --token "<access_token>" --run-mode Unattended --connection-name shared_uiflow
 ```
+กรณีต้องการเลือก Flow แบบโต้ตอบ และมีโทเค็นพร้อมใช้งาน:
+```bash
+python run_desktop_flow_token.py --token "<access_token>"
+# หรือหากตั้งค่า ACCESS_TOKEN ใน .env อยู่แล้ว
+python run_desktop_flow_token.py
+```
+หากไม่กำหนด `WORKFLOW_ID` (หรือกำหนดเป็น "SELECT/PICK/PROMPT") สคริปต์จะดึงรายการ Desktop Workflows (category=6) จาก Dataverse แล้วให้เลือกจากรายการ
 หมายเหตุ: Access Token ต้องออกสำหรับ Resource เดียวกับ `DATAVERSE_URL` (audience เท่ากับ URL นั้น) เพื่อเรียก `/api/data/v9.2/...` ได้สำเร็จ
 
 ## ข้อควรทราบ

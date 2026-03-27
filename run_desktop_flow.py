@@ -4,7 +4,7 @@ import time
 import json
 import uuid
 import datetime as dt
-from typing import Optional
+from typing import Optional, List, Dict
 
 import requests
 from msal import ConfidentialClientApplication
@@ -60,6 +60,53 @@ def acquire_token(tenant_id: str, client_id: str, client_secret: str, resource: 
     if "access_token" not in result:
         raise RuntimeError(f"Failed to acquire token: {result}")
     return result["access_token"]
+
+
+def list_desktop_workflows(resource: str, token: str) -> List[Dict[str, str]]:
+    url = f"{resource}/api/data/v9.2/workflows?$filter=category eq 6&$select=name,workflowid&$orderby=name"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json",
+        "OData-MaxVersion": "4.0",
+        "OData-Version": "4.0",
+    }
+    items: List[Dict[str, str]] = []
+    next_link = url
+    while next_link:
+        resp = requests.get(next_link, headers=headers, timeout=60)
+        if resp.status_code != 200:
+            raise RuntimeError(f"Failed to list workflows: {resp.status_code} {resp.text}")
+        data = resp.json()
+        items.extend(data.get("value", []))
+        next_link = data.get("@odata.nextLink")
+    # Normalize fields
+    result: List[Dict[str, str]] = []
+    for it in items:
+        name = str(it.get("name") or "").strip()
+        wid = str(it.get("workflowid") or "").strip("{} ")
+        if wid:
+            result.append({"name": name or wid, "workflowid": wid})
+    return result
+
+
+def prompt_select_workflow(flows: List[Dict[str, str]]) -> Optional[str]:
+    if not flows:
+        print("No Desktop Workflows (category=6) found.")
+        return None
+    print("Available Desktop Workflows:")
+    for idx, f in enumerate(flows, start=1):
+        print(f"{idx:3d}. {f.get('name')}    [{f.get('workflowid')}]")
+    while True:
+        sel = input("Enter number to run (or 'q' to quit): ").strip()
+        if sel.lower() in {"q", "quit", "exit"}:
+            return None
+        if not sel.isdigit():
+            print("Please enter a valid number.")
+            continue
+        i = int(sel)
+        if 1 <= i <= len(flows):
+            return flows[i - 1]["workflowid"]
+        print("Number out of range. Try again.")
 
 
 def call_run_desktop_flow(resource: str, token: str, workflow_id: str, payload: Optional[dict] = None) -> requests.Response:
@@ -261,20 +308,10 @@ def main():
     client_id = get_env("CLIENT_ID")
     client_secret = get_env("CLIENT_SECRET")
     dataverse_url = get_env("DATAVERSE_URL")
-    workflow_id = get_env("WORKFLOW_ID")
+    workflow_id = os.getenv("WORKFLOW_ID", "").strip()
 
-    # Normalize URL and workflow GUID formatting
+    # Normalize URL; workflow id will be handled later (may be picked interactively)
     dataverse_url = dataverse_url.rstrip("/")
-    workflow_id = workflow_id.strip()
-    if workflow_id.startswith("{") and workflow_id.endswith("}"):
-        workflow_id = workflow_id[1:-1]
-
-    # Validate GUID format (basic)
-    try:
-        uuid.UUID(workflow_id)
-    except Exception:
-        print("WORKFLOW_ID must be a valid GUID, e.g. 1015b2f8-5575-45dd-b1ba-adca4f1f5957")
-        sys.exit(2)
 
     poll_interval = int(get_env("POLL_INTERVAL_SEC", required=False, default="5"))
     timeout_sec = int(get_env("POLL_TIMEOUT_SEC", required=False, default="1200"))
@@ -286,6 +323,7 @@ def main():
     run_mode_cli = None
     connection_name_cli = None
     flowsession_id_cli = None
+    pick_cli = False
     if len(sys.argv) > 1:
         args = sys.argv[1:]
         i = 0
@@ -293,6 +331,9 @@ def main():
             if args[i] in ("-i", "--inputs") and i + 1 < len(args):
                 inputs_path = args[i + 1]
                 i += 2
+            elif args[i] in ("-p", "--pick", "--select"):
+                pick_cli = True
+                i += 1
             elif args[i] in ("-m", "--run-mode") and i + 1 < len(args):
                 run_mode_cli = args[i + 1]
                 i += 2
@@ -303,7 +344,7 @@ def main():
                 flowsession_id_cli = args[i + 1]
                 i += 2
             else:
-                print("Usage: python run_desktop_flow.py [--run-mode Attended|Unattended] [--connection-name <name>] [--flowsession-id <id>] [--inputs inputs.json]")
+                print("Usage: python run_desktop_flow.py [--pick] [--run-mode Attended|Unattended] [--connection-name <name>] [--flowsession-id <id>] [--inputs inputs.json]")
                 sys.exit(1)
 
     try:
@@ -336,6 +377,31 @@ def main():
     if "runMode" not in payload or "connectionName" not in payload:
         print("Missing required parameters: runMode, connectionName. Provide via inputs.json or --run-mode/--connection-name or env RUN_MODE/CONNECTION_NAME.")
         sys.exit(7)
+
+    # If user asked to pick, or WORKFLOW_ID missing/placeholder, list and select
+    if pick_cli or not workflow_id or workflow_id.upper() in {"SELECT", "PICK", "PROMPT"}:
+        try:
+            flows = list_desktop_workflows(dataverse_url, token)
+        except Exception as ex:
+            print(f"Failed to list Desktop Workflows: {ex}")
+            sys.exit(12)
+        sel_id = prompt_select_workflow(flows)
+        if not sel_id:
+            print("No workflow selected. Exiting.")
+            sys.exit(0)
+        workflow_id = sel_id
+
+    # Normalize selected/entered GUID
+    workflow_id = workflow_id.strip()
+    if workflow_id.startswith("{") and workflow_id.endswith("}"):
+        workflow_id = workflow_id[1:-1]
+
+    # Validate GUID format (basic)
+    try:
+        uuid.UUID(workflow_id)
+    except Exception:
+        print("WORKFLOW_ID must be a valid GUID, e.g. 1015b2f8-5575-45dd-b1ba-adca4f1f5957")
+        sys.exit(2)
 
     flowsession_id = (flowsession_id_cli or os.getenv("FLOWSESSION_ID") or "").strip("{} ")
     started_at = utcnow()
